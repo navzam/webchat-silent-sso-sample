@@ -1,0 +1,194 @@
+<!DOCTYPE html>
+<html>
+
+<head>
+  <meta charset="utf-8" />
+  <link rel="shortcut icon" href="/images/BotServices.png" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <meta name="theme-color" content="#000000" />
+  <title>Web Chat Silent Single Sign-On Demo</title>
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/bluebird/3.3.4/bluebird.min.js"></script>
+  <script src="https://cdn.botframework.com/botframework-webchat/latest/webchat.js"></script>
+  <script src="https://alcdn.msauth.net/lib/1.2.0/js/msal.min.js"></script>
+
+  <!-- This is for styling Web Chat for demonstration purposes -->
+  <style type="text/css">
+    html,
+    body {
+      background-color: #f7f7f7;
+      height: 100%;
+    }
+
+    body {
+      background-image: url(/images/BotServices-Translucent.svg);
+      background-position: 100% 100%;
+      background-repeat: no-repeat;
+      background-size: auto 50%;
+      margin: 0;
+    }
+
+    #webchat {
+      border-radius: 4px;
+      box-shadow: 0 0 8px rgba(0, 0, 0, 0.08);
+      height: calc(100% - 20px);
+      left: 10px;
+      overflow: hidden;
+      position: fixed;
+      top: 10px;
+      width: 360px;
+    }
+  </style>
+</head>
+
+<body>
+  <noscript>You need to enable JavaScript to run this app.</noscript>
+  <script>
+    // Settings
+    // UPN of user who will be logging in
+    const USER_UPN = 'nazam@nafiszaman.onmicrosoft.com';
+    // AAD app ID for app that user is logging into
+    const AAD_APP_ID = '4023775f-5a9d-4f6e-9cf7-4e6a1a3420fa';
+    // AAD app redirect URI after auth flow
+    const AAD_REDIRECT_URI = 'http://localhost:5000/redirect.html';
+    // Scopes that access token should contain
+    const AAD_SCOPES = ['user.read'];
+
+
+    // Calls backend API to get Direct Line token
+    async function getDirectLineToken(idToken) {
+      const res = await fetch('/api/directline/token', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'Authorization': `Bearer ${idToken}`,
+        },
+      });
+
+      if (!res.ok) {
+        throw new Error(`Failed to get Direct Line token due to ${res.status}`);
+      }
+
+      return await res.json();
+    }
+
+    function renderWebChat(dlToken, webChatElement) {
+      // Create DirectLine instance
+      var directLine = WebChat.createDirectLine({ token: dlToken });
+
+      // Use Redux middleware to piggyback access token onto all outgoing activities
+      const store = WebChat.createStore({}, ({ dispatch }) => {
+        return next => action => {
+          // Only care about outgoing activities
+          if (action.type !== 'DIRECT_LINE/POST_ACTIVITY') {
+            return next(action);
+          }
+
+          // TODO: Handle errors
+          myMSALObj.acquireTokenSilent(tokenRequestObj).then(authTokenResult => {
+            var oauthAccessToken = authTokenResult.accessToken;
+            action = {
+              ...action,
+              payload: {
+                ...action.payload,
+                activity: {
+                  ...action.payload.activity,
+                  channelData: {
+                    ...action.payload.activity.channelData,
+                    oauthAccessToken,
+                  },
+                },
+              },
+            };
+
+            // TODO: Since this is async, can't do "return next(action)" anymore... is that needed?
+            next(action);
+          });
+        };
+      });
+
+      // Render webchat in given element
+      window.WebChat.renderWebChat(
+        {
+          directLine,
+          store,
+          styleOptions: {
+            backgroundColor: 'rgba(255, 255, 255, .8)',
+          },
+          username: 'Web Chat User',
+          locale: 'en-US',
+        },
+        webChatElement,
+      );
+    }
+
+    // Checks whether MSAL error is due to some kind of required interaction
+    function requiresLogin(errorCode) {
+      return errorCode === 'login_required';
+    }
+    function requiresConsent(errorCode) {
+      return errorCode === 'consent_required';
+    }
+    function requiresInteraction(errorCode) {
+      return errorCode === 'interaction_required';
+    }
+
+    // Create MSAL object
+    var msalConfig = {
+      auth: {
+        clientId: AAD_APP_ID,
+        redirectUri: AAD_REDIRECT_URI,
+      },
+      cache: {
+        // cacheLocation: "localStorage",
+        storeAuthStateInCookie: true,
+      },
+    };
+
+    var myMSALObj = new Msal.UserAgentApplication(msalConfig);
+    // Config for acquiring token silently
+    var tokenRequestObj = {
+      scopes: AAD_SCOPES,
+      loginHint: USER_UPN,
+      // authority: 'https://login.microsoftonline.com/common'
+    };
+
+    (async function main() {
+      try {
+        // Try to acquire token silently
+        console.info('acquiring token silently...');
+        const authTokenResult = await myMSALObj.acquireTokenSilent(tokenRequestObj);
+        console.info('successfully acquired token silently');
+        console.info(authTokenResult);
+
+        // Extract ID token and get Direct Line Token
+        console.info('acquiring direct line token...');
+        debugger;
+        const dlTokenResult = await getDirectLineToken(authTokenResult.idToken.rawIdToken);
+        console.info('successfully acquired direct line token');
+        console.info(dlTokenResult);
+
+        // Extract Direct Line token and render web chat in div element
+        const webChatElement = document.createElement('div');
+        webChatElement.id = 'webchat';
+        renderWebChat(dlTokenResult.token, webChatElement);
+
+        // Add webchat div to page
+        document.documentElement.append(webChatElement);
+      } catch (error) {
+        debugger;
+        if (requiresLogin(error.errorCode)) {
+          console.error('Failed to get token silently because the user is not logged in. Try establishing a session with AAD by logging into another service with this user.');
+        } else if (requiresInteraction(error.errorCode)) {
+          console.error('Failed to get token silently because the sign-in flow requires interaction.');
+        } else if (requiresConsent(error.errorCode)) {
+          console.error('Failed to get token silently because the app does not have consent. Either have the admin pre-grant consent for the tenant, or click the button below to complete a one-time consent process.');
+        } else {
+          console.error('Something went wrong. See error below');
+          console.error(error);
+        }
+      }
+    })().catch(err => console.error(err));
+  </script>
+</body>
+
+</html>
