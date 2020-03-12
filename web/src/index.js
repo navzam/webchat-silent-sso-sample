@@ -24,10 +24,8 @@ server.use(restify.plugins.bodyParser());
 var bearerStrategy = new BearerStrategy({
     identityMetadata: OAUTH_METADATA_ENDPOINT,
     clientID: OAUTH_CLIENT_ID,
-    validateIssuer: true,
+    validateIssuer: true, // disable to allow any tenant
     issuer: `https://login.microsoftonline.com/${TENANT_ID}/v2.0`,
-    loggingLevel: 'info',
-    loggingNoPII: false,
 }, (token, done) => {
     console.info(`the token retrieved is ${token}`);
     const user = {
@@ -39,9 +37,12 @@ var bearerStrategy = new BearerStrategy({
 });
 passport.use(bearerStrategy);
 
-// Register route for getting a DirectLine token
-// Protected using Passport, which will validate the incoming ID token
-server.post('/api/directline/token', passport.authenticate('oauth-bearer', { session: false }), require('./routes/directLine/token'));
+// Route for getting a DirectLine token
+// Protected using Passport, which will validate the incoming token
+server.post('/api/directline/token',
+    passport.authenticate('oauth-bearer', { session: false }),
+    require('./routes/directLine/token')
+);
 
 // We will use the REST API server to serve static web content to simplify demployment for demonstration purposes
 if (STATIC_FILES) {
@@ -52,7 +53,9 @@ if (STATIC_FILES) {
 }
 
 server.listen(PORT, () => {
-    if (STATIC_FILES) console.log(`Will serve static content from ${STATIC_FILES}`);
+    if (STATIC_FILES) {
+        console.log(`Will serve static content from ${STATIC_FILES}`);
+    }
 
     console.log(`REST API server is listening to port ${PORT}`);
 });

@@ -1,7 +1,6 @@
 const fetchJSON = require('../utils/fetchJSON');
 
 async function generateDirectLineToken(secret, userId) {
-    console.log(`Generating DL token for ${userId} (${secret})`);
     const directLineResponse = await fetchJSON('https://directline.botframework.com/v3/directline/tokens/generate', {
         headers: {
             Authorization: `Bearer ${secret}`,

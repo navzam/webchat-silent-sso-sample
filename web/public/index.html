@@ -44,7 +44,7 @@
   <noscript>You need to enable JavaScript to run this app.</noscript>
   <script>
     // Settings
-    // UPN of user who will be logging in
+    // UPN of user who will be logging in. Normally this would be acquired from another context
     const USER_UPN = 'nazam@nafiszaman.onmicrosoft.com';
     // AAD app ID for app that user is logging into
     const AAD_APP_ID = '4023775f-5a9d-4f6e-9cf7-4e6a1a3420fa';
@@ -72,20 +72,16 @@
     }
 
     function renderWebChat(dlToken, webChatElement) {
-      // Create DirectLine instance
-      var directLine = WebChat.createDirectLine({ token: dlToken });
-
-      // Use Redux middleware to piggyback access token onto all outgoing activities
+      // Piggyback the access token on every outgoing activity.
       const store = WebChat.createStore({}, ({ dispatch }) => {
         return next => action => {
-          // Only care about outgoing activities
           if (action.type !== 'DIRECT_LINE/POST_ACTIVITY') {
             return next(action);
           }
 
           // TODO: Handle errors
           myMSALObj.acquireTokenSilent(tokenRequestObj).then(authTokenResult => {
-            var oauthAccessToken = authTokenResult.accessToken;
+            const oauthAccessToken = authTokenResult.accessToken;
             action = {
               ...action,
               payload: {
@@ -99,23 +95,21 @@
                 },
               },
             };
-
-            // TODO: Since this is async, can't do "return next(action)" anymore... is that needed?
+            
             next(action);
           });
         };
       });
 
       // Render webchat in given element
-      window.WebChat.renderWebChat(
+      WebChat.renderWebChat(
         {
-          directLine,
+          directLine: WebChat.createDirectLine({ token: dlToken }),
           store,
           styleOptions: {
             backgroundColor: 'rgba(255, 255, 255, .8)',
           },
-          username: 'Web Chat User',
-          locale: 'en-US',
+          // username: 'Web Chat User',
         },
         webChatElement,
       );
@@ -133,7 +127,7 @@
     }
 
     // Create MSAL object
-    var msalConfig = {
+    const myMSALObj = new Msal.UserAgentApplication({
       auth: {
         clientId: AAD_APP_ID,
         redirectUri: AAD_REDIRECT_URI,
@@ -142,11 +136,10 @@
         // cacheLocation: "localStorage",
         storeAuthStateInCookie: true,
       },
-    };
+    });
 
-    var myMSALObj = new Msal.UserAgentApplication(msalConfig);
     // Config for acquiring token silently
-    var tokenRequestObj = {
+    const tokenRequestObj = {
       scopes: AAD_SCOPES,
       loginHint: USER_UPN,
       // authority: 'https://login.microsoftonline.com/common'
@@ -154,7 +147,7 @@
 
     (async function main() {
       try {
-        // Try to acquire token silently
+        // Try to acquire token silently. This will fail if there isn't an existing session with AAD
         console.info('acquiring token silently...');
         const authTokenResult = await myMSALObj.acquireTokenSilent(tokenRequestObj);
         console.info('successfully acquired token silently');
@@ -172,7 +165,6 @@
         webChatElement.id = 'webchat';
         renderWebChat(dlTokenResult.token, webChatElement);
 
-        // Add webchat div to page
         document.documentElement.append(webChatElement);
       } catch (error) {
         debugger;

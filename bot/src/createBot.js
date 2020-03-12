@@ -8,7 +8,7 @@ module.exports = () => {
 
   // Handler for "message" activity
   bot.onMessage(async (context, next) => {
-    const oauthAccessToken = context.activity.channelData.oauthAccessToken;
+    const { activity: { channelData: { oauthAccessToken } = {} } = {} } = context;
 
     if (oauthAccessToken) {
       // For async operations that are outside of BotBuilder, we should use proactive messaging.
@@ -22,7 +22,9 @@ module.exports = () => {
         const adapter = createBotAdapter();
 
         await adapter.continueConversation(reference, async context => {
-          await context.sendActivity({ text: `Welcome back, ${name} (via Azure AD).` });
+          await context.sendActivity({
+            text: `Welcome back, ${name} (via Azure AD).`
+          });
         });
       });
     } else {
